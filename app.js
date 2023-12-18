@@ -1,26 +1,72 @@
 const express = require('express'); 
 const bodyParser = require('body-parser');
 const feedRoutes = require('./routes/feed');
+const authRoutes = require('./routes/auth');
 const mongoose = require('mongoose');
-
+const path = require('path');
+const { Stats } = require('fs');
+const multer = require('multer');
 
 const app=express();
 
-app.use(bodyParser.json());
+const fileStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'images');
+    },
+    filename: (req, file, cb) => {
 
-app.use((req,res,next)=>{
-    res.setHeader('Access-Control-Allow-Origin','*');
-    res.setHeader('Access-Control-Allow-Methods','GET,POST,PUT,PATCH,DELETE');
-    res.setHeader('Access-Control-Allow-Headers','Content-Type','Authorization');
-    next();
-
+        cb(null, new Date().toISOString().replace(/:/g, '-') + file.originalname);
+    }
 });
 
-app.use('/feed',feedRoutes);
 
+const fileFilter = (req,file,cb) =>{
+    if(
+        file.mimetype === 'image/png' ||
+        file.mimetype === 'image/jpg' || 
+        file.mimetype === 'image/jpeg' 
+    )
+    {
+        cb(null,true);
+    }
+    else {
+        cb(null,false);
+    }
+}
+
+app.use(bodyParser.json());
+app.use(multer({storage:fileStorage,fileFilter:fileFilter}).single('image'));
+//serving the file statically from local
+app.use('/images',express.static(path.join(__dirname,'images')));
+
+app.use((req,res,next)=>{
+        res.setHeader('Access-Control-Allow-Origin','*');
+        res.setHeader('Access-Control-Allow-Methods','GET,POST,PUT,PATCH,DELETE');
+        res.setHeader('Access-Control-Allow-Headers','Content-Type,Authorization');
+        next();
+
+    });
+
+app.use('/feed',feedRoutes);
+app.use('/auth',authRoutes);
+
+app.use((error,req,res,next)=>{
+    const status=error.statusCode || 500;
+    const message=error.message;
+    res.status(status).json({
+        message:message
+    });
+})
 
 mongoose.connect('mongodb+srv://wrajvi13:LvMK1TUQd4pnk611@cluster0.wckoi9p.mongodb.net/messages?retryWrites=true&w=majority')
 .then( result  => {
-    app.listen(8080);
+    const server = app.listen(8080);
+    const io = require('./socket').init(server);
+    console.log("start");
+    io.on('connection',socket => {
+        console.log('Client Connected');
+    });
+    
+    console.log("connected");
 })
 .catch(err => console.log(err));
